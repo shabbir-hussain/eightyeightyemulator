@@ -25,14 +25,14 @@ public class CPU {
 	int sp;
 	int pc;
 	int int_enable;
-	
+
 	//flags
 	boolean zero;
 	boolean sign;
 	boolean parity;
 	boolean carry;
 	boolean auxiliaryCarry;
-		
+
 	//main memory
 	Memory mmry;
 
@@ -56,7 +56,7 @@ public class CPU {
 
 		mmry.copyTo(data, 0);
 	}
-	
+
 	/**
 	 * checks for parity of byte
 	 * @param x
@@ -74,6 +74,22 @@ public class CPU {
 			x = x >> 1;
 		}
 		return (0 == (p & 0x1));
+	}
+
+	void LogicFlagsA()
+	{
+		carry = false;auxiliaryCarry = false;
+		zero = (a == 0);
+		sign = (0x80 == (a & 0x80));
+		parity = parity(a, 8);
+	}
+
+	void ArithFlagsA(int res)
+	{
+		carry = (res > 0xff);
+		zero = ((res&0xff) == 0);
+		sign = (0x80 == (res & 0x80));
+		parity = parity(res&0xff, 8);
 	}
 
 	int ExecuteNextInstruction()
@@ -156,7 +172,7 @@ public class CPU {
 				d++;
 				e =0;
 			}
-				break;		
+			break;		
 		case 0x14: throw new UnimplementedInstruction(); break;
 		case 0x15: throw new UnimplementedInstruction(); break;
 		case 0x16: throw new UnimplementedInstruction(); break;
@@ -185,31 +201,33 @@ public class CPU {
 		case 0x1f: throw new UnimplementedInstruction(); break;
 		case 0x20: throw new UnimplementedInstruction(); break;
 		case 0x21: 							//LXI	H,word
-			state->l = opcode[1];
-			state->h = opcode[2];
-			state->pc += 2;
+			l = mmry.read(pc+1);
+			h = mmry.read(pc+2);
+			pc += 2;
 			break;
 		case 0x22: throw new UnimplementedInstruction(); break;
 		case 0x23: 							//INX    H
-			state->l++;
-			if (state->l == 0)
-				state->h++;
-				break;		
+			l++;
+			if (l > 0xFF){ //if overflow
+				h++;
+				l=0;
+			}
+			break;		
 		case 0x24: throw new UnimplementedInstruction(); break;
 		case 0x25: throw new UnimplementedInstruction(); break;
 		case 0x26:  							//MVI H,byte
-			state->h = opcode[1];
-			state->pc++;
+			h = mmry.read(pc+1);
+			pc++;
 			break;
 		case 0x27: throw new UnimplementedInstruction(); break;
 		case 0x28: throw new UnimplementedInstruction(); break;
 		case 0x29: 								//DAD    H
 		{
-			uint32_t hl = (state->h << 8) | state->l;
-			uint32_t res = hl + hl;
-			state->h = (res & 0xff00) >> 8;
-			state->l = res & 0xff;
-			state->cc.cy = ((res & 0xffff0000) != 0);
+			int hl = (h << 8) | (l&0xFF);
+			int res = hl + hl;
+			h = (res & 0xff00) >> 8;
+			l = res & 0xff;
+			carry = ((res & 0xffff0000) != 0);
 		}
 		break;
 		case 0x2a: throw new UnimplementedInstruction(); break;
@@ -220,14 +238,14 @@ public class CPU {
 		case 0x2f: throw new UnimplementedInstruction(); break;
 		case 0x30: throw new UnimplementedInstruction(); break;
 		case 0x31: 							//LXI	SP,word
-			state->sp = (opcode[2]<<8) | opcode[1];
-			state->pc += 2;
+			sp = (mmry.read(pc+2)<<8) | (mmry.read(pc+1)&0xFF);
+			pc += 2;
 			break;
 		case 0x32: 							//STA    (word)
 		{
-			uint16_t offset = (opcode[2]<<8) | (opcode[1]);
-			state->memory[offset] = state->a;
-			state->pc += 2;
+			int offset = (mmry.read(pc+2)<<8) | (mmry.read(pc+1)&0xFF);
+			mmry.write(offset, a);
+			pc += 2;
 		}
 		break;
 		case 0x33: throw new UnimplementedInstruction(); break;
@@ -236,9 +254,9 @@ public class CPU {
 		case 0x36: 							//MVI	M,byte
 		{					
 			//AC set if lower nibble of h was zero prior to dec
-			uint16_t offset = (state->h<<8) | state->l;
-			state->memory[offset] = opcode[1];
-			state->pc++;
+			int offset = (h<<8) | (l&0xFF);
+			mmry.write(offset, mmry.read(pc+1));
+			pc++;
 		}
 		break;
 		case 0x37: throw new UnimplementedInstruction(); break;
@@ -246,17 +264,17 @@ public class CPU {
 		case 0x39: throw new UnimplementedInstruction(); break;
 		case 0x3a: 							//LDA    (word)
 		{
-			uint16_t offset = (opcode[2]<<8) | (opcode[1]);
-			state->a = state->memory[offset];
-			state->pc+=2;
+			int offset = (mmry.read(pc+2)<<8) | (mmry.read(pc+1)&0xFF);
+			a = mmry.read(offset);
+			pc+=2;
 		}
 		break;
 		case 0x3b: throw new UnimplementedInstruction(); break;
 		case 0x3c: throw new UnimplementedInstruction(); break;
 		case 0x3d: throw new UnimplementedInstruction(); break;
 		case 0x3e: 							//MVI    A,byte
-			state->a = opcode[1];
-			state->pc++;
+			a = mmry.read(pc+1);
+			pc++;
 			break;
 		case 0x3f: throw new UnimplementedInstruction(); break;
 		case 0x40: throw new UnimplementedInstruction(); break;
@@ -283,8 +301,8 @@ public class CPU {
 		case 0x55: throw new UnimplementedInstruction(); break;
 		case 0x56: 							//MOV D,M
 		{
-			uint16_t offset = (state->h<<8) | (state->l);
-			state->d = state->memory[offset];
+			int offset = (h<<8) | (l);
+			d = mmry.read(offset);
 		}
 		break;
 		case 0x57: throw new UnimplementedInstruction(); break;
@@ -296,8 +314,8 @@ public class CPU {
 		case 0x5d: throw new UnimplementedInstruction(); break;
 		case 0x5e: 							//MOV E,M
 		{
-			uint16_t offset = (state->h<<8) | (state->l);
-			state->e = state->memory[offset];
+			int offset = (h<<8) | (l&0xFF);
+			e = mmry.read(offset);
 		}
 		break;
 		case 0x5f: throw new UnimplementedInstruction(); break;
@@ -309,8 +327,8 @@ public class CPU {
 		case 0x65: throw new UnimplementedInstruction(); break;
 		case 0x66: 							//MOV H,M
 		{
-			uint16_t offset = (state->h<<8) | (state->l);
-			state->h = state->memory[offset];
+			int offset = (h<<8) | (l&0xFF);
+			h = mmry.read(offset);
 		}
 		break;
 		case 0x67: throw new UnimplementedInstruction(); break;
@@ -321,7 +339,7 @@ public class CPU {
 		case 0x6c: throw new UnimplementedInstruction(); break;
 		case 0x6d: throw new UnimplementedInstruction(); break;
 		case 0x6e: throw new UnimplementedInstruction(); break;
-		case 0x6f: state->l = state->a; break; //MOV L,A
+		case 0x6f: l = a; break; //MOV L,A
 		case 0x70: throw new UnimplementedInstruction(); break;
 		case 0x71: throw new UnimplementedInstruction(); break;
 		case 0x72: throw new UnimplementedInstruction(); break;
@@ -331,20 +349,20 @@ public class CPU {
 		case 0x76: throw new UnimplementedInstruction(); break;
 		case 0x77: 							//MOV    M,A
 		{
-			uint16_t offset = (state->h<<8) | (state->l);
-			state->memory[offset] = state->a;
+			int offset = (h<<8) | (l&0xFF);
+			mmry.write(offset, a);
 		}
 		break;
 		case 0x78: throw new UnimplementedInstruction(); break;
 		case 0x79: throw new UnimplementedInstruction(); break;
-		case 0x7a: state->a  = state->d;  break;	//MOV D,A
-		case 0x7b: state->a  = state->e;  break;	//MOV E,A
-		case 0x7c: state->a  = state->h;  break;	//MOV H,A
+		case 0x7a: a  = d;  break;	//MOV A,D
+		case 0x7b: a  = e;  break;	//MOV A,E
+		case 0x7c: a  = h;  break;	//MOV A,H
 		case 0x7d: throw new UnimplementedInstruction(); break;
 		case 0x7e: 							//MOV A,M
 		{
-			uint16_t offset = (state->h<<8) | (state->l);
-			state->a = state->memory[offset];
+			int offset = (h<<8) | (l&0xFF);
+			a = mmry.read(offset);
 		}
 		break;
 		case 0x7f: throw new UnimplementedInstruction(); break;
@@ -387,7 +405,7 @@ public class CPU {
 		case 0xa4: throw new UnimplementedInstruction(); break;
 		case 0xa5: throw new UnimplementedInstruction(); break;
 		case 0xa6: throw new UnimplementedInstruction(); break;
-		case 0xa7: state->a = state->a & state->a; LogicFlagsA(state);	break; //ANA A
+		case 0xa7: a = a & a; LogicFlagsA();	break; //ANA A
 		case 0xa8: throw new UnimplementedInstruction(); break;
 		case 0xa9: throw new UnimplementedInstruction(); break;
 		case 0xaa: throw new UnimplementedInstruction(); break;
@@ -395,7 +413,7 @@ public class CPU {
 		case 0xac: throw new UnimplementedInstruction(); break;
 		case 0xad: throw new UnimplementedInstruction(); break;
 		case 0xae: throw new UnimplementedInstruction(); break;
-		case 0xaf: state->a = state->a ^ state->a; LogicFlagsA(state);	break; //XRA A
+		case 0xaf: a = a ^ a; LogicFlagsA();	break; //XRA A
 		case 0xb0: throw new UnimplementedInstruction(); break;
 		case 0xb1: throw new UnimplementedInstruction(); break;
 		case 0xb2: throw new UnimplementedInstruction(); break;
@@ -415,55 +433,55 @@ public class CPU {
 		case 0xc0: throw new UnimplementedInstruction(); break;
 		case 0xc1: 						//POP    B
 		{
-			state->c = state->memory[state->sp];
-			state->b = state->memory[state->sp+1];
-			state->sp += 2;
+			c = mmry.read(sp);
+			b = mmry.read(sp+1);
+			sp += 2;
 		}
 		break;
 		case 0xc2: 						//JNZ address
-			if (0 == state->cc.z)
-				state->pc = (opcode[2] << 8) | opcode[1];
-				else
-					state->pc += 2;
-					break;
+			if (!zero)
+				pc = (mmry.read(pc+2) << 8) | (mmry.read(pc+1)&0xFF);
+			else
+				pc += 2;
+			break;
 		case 0xc3:						//JMP address
-			state->pc = (opcode[2] << 8) | opcode[1];
+			pc = (mmry.read(pc+2) << 8) | (mmry.read(pc+1)&0xFF);
 			break;
 		case 0xc4: throw new UnimplementedInstruction(); break;
 		case 0xc5: 						//PUSH   B
 		{
-			state->memory[state->sp-1] = state->b;
-			state->memory[state->sp-2] = state->c;
-			state->sp = state->sp - 2;
+			mmry.write(sp-1,b);
+			mmry.write(sp-2,c);
+			sp = sp - 2;
 		}
 		break;
 		case 0xc6: 						//ADI    byte
 		{
-			uint16_t x = (uint16_t) state->a + (uint16_t) opcode[1];
-			state->cc.z = ((x & 0xff) == 0);
-			state->cc.s = (0x80 == (x & 0x80));
-			state->cc.p = parity((x&0xff), 8);
-			state->cc.cy = (x > 0xff);
-			state->a = (uint8_t) x;
-			state->pc++;
+			int x =  a +  mmry.read(pc+1);
+			zero = ((x & 0xff) == 0);
+			sign = (0x80 == (x & 0x80));
+			parity = parity((x&0xff), 8);
+			carry = (x > 0xff);
+			a = x&(0xFF);
+			pc++;
 		}
 		break;
 		case 0xc7: throw new UnimplementedInstruction(); break;
 		case 0xc8: throw new UnimplementedInstruction(); break;
 		case 0xc9: 						//RET
-			state->pc = state->memory[state->sp] | (state->memory[state->sp+1] << 8);
-			state->sp += 2;
+			pc = (mmry.read(sp)&0xFF) | (mmry.read(sp+1) << 8);
+			sp += 2;
 			break;
 		case 0xca: throw new UnimplementedInstruction(); break;
 		case 0xcb: throw new UnimplementedInstruction(); break;
 		case 0xcc: throw new UnimplementedInstruction(); break;
 		case 0xcd: 						//CALL adr
 		{
-			uint16_t	ret = state->pc+2;
-			state->memory[state->sp-1] = (ret >> 8) & 0xff;
-			state->memory[state->sp-2] = (ret & 0xff);
-			state->sp = state->sp - 2;
-			state->pc = (opcode[2] << 8) | opcode[1];
+			int	ret = pc+2;
+			mmry.write(sp-1, ((ret >> 8) & 0xff));
+			mmry.write(sp-1, (ret & 0xff));
+			sp = sp - 2;
+			pc = (mmry.read(pc+2) << 8) | mmry.read(pc+1);
 		}
 		break;
 		case 0xce: throw new UnimplementedInstruction(); break;
@@ -471,22 +489,22 @@ public class CPU {
 		case 0xd0: throw new UnimplementedInstruction(); break;
 		case 0xd1: 						//POP    D
 		{
-			state->e = state->memory[state->sp];
-			state->d = state->memory[state->sp+1];
-			state->sp += 2;
+			e = mmry.read(sp);
+			d = mmry.read(sp+1);
+			sp += 2;
 		}
 		break;
 		case 0xd2: throw new UnimplementedInstruction(); break;
 		case 0xd3: 
 			//Don't know what to do here (yet)
-			state->pc++;
+			pc++;
 			break;
 		case 0xd4: throw new UnimplementedInstruction(); break;
 		case 0xd5: 						//PUSH   D
 		{
-			state->memory[state->sp-1] = state->d;
-			state->memory[state->sp-2] = state->e;
-			state->sp = state->sp - 2;
+			mmry.write(sp-1, d);
+			mmry.write(sp-2, e);
+			sp = sp - 2;
 		}
 		break;
 		case 0xd6: throw new UnimplementedInstruction(); break;
@@ -502,9 +520,9 @@ public class CPU {
 		case 0xe0: throw new UnimplementedInstruction(); break;
 		case 0xe1: 					//POP    H
 		{
-			state->l = state->memory[state->sp];
-			state->h = state->memory[state->sp+1];
-			state->sp += 2;
+			l=mmry.read(sp);
+			h=mmry.read(sp+1);
+			sp += 2;
 		}
 		break;
 		case 0xe2: throw new UnimplementedInstruction(); break;
@@ -512,16 +530,16 @@ public class CPU {
 		case 0xe4: throw new UnimplementedInstruction(); break;
 		case 0xe5: 						//PUSH   H
 		{
-			state->memory[state->sp-1] = state->h;
-			state->memory[state->sp-2] = state->l;
-			state->sp = state->sp - 2;
+			mmry.write(sp-1, h);
+			mmry.write(sp-2, l);
+			sp = sp - 2;
 		}
 		break;
 		case 0xe6: 						//ANI    byte
 		{
-			state->a = state->a & opcode[1];
-			LogicFlagsA(state);
-			state->pc++;
+			a = a & mmry.read(pc+1);
+			LogicFlagsA();
+			pc++;
 		}
 		break;
 		case 0xe7: throw new UnimplementedInstruction(); break;
@@ -530,12 +548,12 @@ public class CPU {
 		case 0xea: throw new UnimplementedInstruction(); break;
 		case 0xeb: 					//XCHG
 		{
-			uint8_t save1 = state->d;
-			uint8_t save2 = state->e;
-			state->d = state->h;
-			state->e = state->l;
-			state->h = save1;
-			state->l = save2;
+			int save1 = d;
+			int save2 = e;
+			d = h;
+			e = l;
+			h = save1;
+			l = save2;
 		}
 		break;
 		case 0xec: throw new UnimplementedInstruction(); break;
@@ -545,14 +563,14 @@ public class CPU {
 		case 0xf0: throw new UnimplementedInstruction(); break;
 		case 0xf1: 					//POP PSW
 		{
-			state->a = state->memory[state->sp+1];
-			uint8_t psw = state->memory[state->sp];
-			state->cc.z  = (0x01 == (psw & 0x01));
-			state->cc.s  = (0x02 == (psw & 0x02));
-			state->cc.p  = (0x04 == (psw & 0x04));
-			state->cc.cy = (0x05 == (psw & 0x08));
-			state->cc.ac = (0x10 == (psw & 0x10));
-			state->sp += 2;
+			a = mmry.read(sp+1);
+			int psw = mmry.read(sp);
+			zero  = (0x01 == (psw & 0x01));
+			sign  = (0x02 == (psw & 0x02));
+			parity  = (0x04 == (psw & 0x04));
+			carry = (0x05 == (psw & 0x08));
+			auxiliaryCarry = (0x10 == (psw & 0x10));
+			sp += 2;
 		}
 		break;
 		case 0xf2: throw new UnimplementedInstruction(); break;
@@ -560,14 +578,14 @@ public class CPU {
 		case 0xf4: throw new UnimplementedInstruction(); break;
 		case 0xf5: 						//PUSH   PSW
 		{
-			state->memory[state->sp-1] = state->a;
-			uint8_t psw = (state->cc.z |
-					state->cc.s << 1 |
-					state->cc.p << 2 |
-					state->cc.cy << 3 |
-					state->cc.ac << 4 );
-			state->memory[state->sp-2] = psw;
-			state->sp = state->sp - 2;
+			mmry.write(sp-1, a);
+			int psw = ((zero?0x1:0) |
+					sign? 0x1<< 1:0 |
+					parity?0x1 << 2:0 |
+					carry? 0x1<< 3:0 |
+					auxiliaryCarry? 0x1<< 4:0 );
+			mmry.write(sp-1, psw);
+			sp = sp - 2;
 		}
 		break;
 		case 0xf6: throw new UnimplementedInstruction(); break;
@@ -575,17 +593,17 @@ public class CPU {
 		case 0xf8: throw new UnimplementedInstruction(); break;
 		case 0xf9: throw new UnimplementedInstruction(); break;
 		case 0xfa: throw new UnimplementedInstruction(); break;
-		case 0xfb: state->int_enable = 1;  break;	//EI
+		case 0xfb: int_enable = 1;  break;	//EI
 		case 0xfc: throw new UnimplementedInstruction(); break;
 		case 0xfd: throw new UnimplementedInstruction(); break;
 		case 0xfe: 						//CPI  byte
 		{
-			uint8_t x = state->a - opcode[1];
-			state->cc.z = (x == 0);
-			state->cc.s = (0x80 == (x & 0x80));
-			state->cc.p = parity(x, 8);
-			state->cc.cy = (state->a < opcode[1]);
-			state->pc++;
+			int x = a - mmry.read(pc+1);
+			zero = (x == 0);
+			sign = (0x80 == (x & 0x80));
+			parity = parity(x, 8);
+			carry = (a < mmry.read(pc+1));
+			pc++;
 		}
 		break;
 		case 0xff: throw new UnimplementedInstruction(); break;
@@ -594,14 +612,6 @@ public class CPU {
 
 		pc++; //increment program Counter
 
-		printf("\t");
-		printf("%c", state->cc.z ? 'z' : '.');
-		printf("%c", state->cc.s ? 's' : '.');
-		printf("%c", state->cc.p ? 'p' : '.');
-		printf("%c", state->cc.cy ? 'c' : '.');
-		printf("%c  ", state->cc.ac ? 'a' : '.');
-		printf("A $%02x B $%02x C $%02x D $%02x E $%02x H $%02x L $%02x SP %04x\n", state->a, state->b, state->c,
-				state->d, state->e, state->h, state->l, state->sp);
 		return 0;
 	}
 

@@ -9,7 +9,7 @@ public class Memory {
 	
 	public static int MemorySize = 0x10000; //16k memory
 	int[] memBuffer = new int[MemorySize];
-	int[] bBuffer = new int[MemorySize];
+	byte[] bBuffer = new byte[MemorySize];
 
 	/**
 	 * This method writes data to the memory

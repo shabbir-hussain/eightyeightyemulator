@@ -1,6 +1,7 @@
 package Emulator;
 
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -25,6 +26,7 @@ public class CPU {
 	int sp;
 	int pc;
 	int int_enable;
+	int int_code;
 
 	//flags
 	boolean zero;
@@ -34,7 +36,7 @@ public class CPU {
 	boolean auxiliaryCarry;
 
 	//main memory
-	Memory mmry;
+	public Memory mmry;
 
 	public CPU() throws IOException{
 		//init registers and memory
@@ -42,10 +44,12 @@ public class CPU {
 
 		//load code to memory
 		loadCodeToMmry();
+		
+		//set sp
+		sp = 0xf000;
 
-		//goto execution loop
 	}
-
+	
 	/**
 	 * loads romfile to memory
 	 * @throws IOException
@@ -92,10 +96,15 @@ public class CPU {
 		parity = parity(res&0xff, 8);
 	}
 
-	int ExecuteNextInstruction() throws UnimplementedInstruction
-	{
+	public int ExecuteNextInstruction() throws UnimplementedInstruction{
 		int cycles = 4;
 		int opcode = mmry.read(pc); //get opCode
+		return ExecuteInstruction(opcode);
+	}
+	
+	public int ExecuteInstruction(int opcode) throws UnimplementedInstruction
+	{
+		
 
 
 		switch (opcode)
@@ -112,7 +121,7 @@ public class CPU {
 		case 0x04: throw new UnimplementedInstruction();
 		case 0x05: 			//DCR    B
 		{
-			int res = (b - 1);
+			int res = b==0? 0xFF:(b - 1);
 			zero = (res == 0);
 			sign = (0x80 == (res & 0x80));
 			parity = parity(res, 8);
@@ -439,13 +448,16 @@ public class CPU {
 		}
 		break;
 		case 0xc2: 						//JNZ address
-			if (!zero)
+			if (!zero){
 				pc = (mmry.read(pc+2) << 8) | (mmry.read(pc+1)&0xFF);
+				pc--;//fix auto inr
+			}
 			else
 				pc += 2;
 			break;
 		case 0xc3:						//JMP address
 			pc = (mmry.read(pc+2) << 8) | (mmry.read(pc+1)&0xFF);
+			pc--;//fix auto increment
 			break;
 		case 0xc4: throw new UnimplementedInstruction();
 		case 0xc5: 						//PUSH   B
@@ -471,19 +483,19 @@ public class CPU {
 		case 0xc9: 						//RET
 			pc = (mmry.read(sp)&0xFF) | (mmry.read(sp+1) << 8);
 			sp += 2;
-			break;
+			return 0;
 		case 0xca: throw new UnimplementedInstruction();
 		case 0xcb: throw new UnimplementedInstruction();
 		case 0xcc: throw new UnimplementedInstruction();
 		case 0xcd: 						//CALL adr
 		{
-			int	ret = pc+2;
+			int	ret = pc+3;
 			mmry.write(sp-1, ((ret >> 8) & 0xff));
-			mmry.write(sp-1, (ret & 0xff));
+			mmry.write(sp-2, (ret & 0xff));
 			sp = sp - 2;
 			pc = (mmry.read(pc+2) << 8) | mmry.read(pc+1);
+			return 0;
 		}
-		break;
 		case 0xce: throw new UnimplementedInstruction();
 		case 0xcf: throw new UnimplementedInstruction();
 		case 0xd0: throw new UnimplementedInstruction();
@@ -579,7 +591,7 @@ public class CPU {
 		case 0xf5: 						//PUSH   PSW
 		{
 			mmry.write(sp-1, a);
-			int psw = (zero?1:0) | (sign? 0x1<< 1:0) |(parity?0x1 << 2:0 )|(carry? 0x1<< 3:0 )|(auxiliaryCarry? 0x1<< 4:0 );
+			int psw = (zero?1:0) | (sign? (0x1<< 1):0) |(parity?(0x1 << 2):0 )|(carry? (0x1<< 3):0 )|(auxiliaryCarry? (0x1<< 4):0 );
 			mmry.write(sp-1, psw);
 			sp = sp - 2;
 		}
@@ -611,4 +623,83 @@ public class CPU {
 		return 0;
 	}
 
+	final protected static char[] hexArray = "0123456789ABCDEF".toCharArray();
+	public static String bytesToHex(int bytes) {
+	    char[] hexChars = new char[2];
+	    
+	        int v = bytes & 0xFF;
+	        hexChars[0] = hexArray[v >>> 4];
+	        hexChars[1] = hexArray[v & 0x0F];
+	    
+	    return new String(hexChars);
+	}
+	public String ToString(){
+
+		int psw = (zero?1:0) | (sign? (0x1<< 1):0) |(parity?(0x1 << 2):0 )|(carry? (0x1<< 3):0 )|(auxiliaryCarry? (0x1<< 4):0 );
+		
+		String res = "af\tbc\tde\thl\tsp\tpc\n";
+		res += bytesToHex(a)+ bytesToHex(psw)+"\t"+bytesToHex(b)+
+				bytesToHex(c)+"\t"+ bytesToHex(d)+bytesToHex(e)+ "\t"+
+				bytesToHex(h)+bytesToHex(l)+"\t"+
+				bytesToHex((sp&0xFF00) >> 8)+bytesToHex(sp)+"\t"
+				+ bytesToHex((pc&0xFF00) >> 8)+ bytesToHex(pc);
+		
+		return res;
+	}
+	
+	//cpu execution loop
+	public void  executionLoop() throws UnimplementedInstruction{
+
+		for(int i=0;i<16667;i++){
+			//do instruction
+			ExecuteNextInstruction();
+		}
+		
+		//check for interrupt
+		handleInterrpts();
+	}
+	
+	private void handleInterrpts() {
+		if(int_code!=0){
+			//perform "PUSH PC"
+			int ret = pc;
+			mmry.write(sp-1, ((ret >> 8) & 0xff));
+			mmry.write(sp-2, (ret & 0xff));
+			sp = sp - 2;
+		  
+		  //Set the PC to the low memory vector.
+		  //This is identical to an "RST interrupt_num" instruction.
+		  pc = 8 * int_code;
+		}
+		int_code=0;//reset interrupt code
+	}
+
+	//////////////////////////GETTERS AND SETTERS////////////////////////////////
+	public boolean intEnabled(){
+		if(this.int_enable!=0){
+			return true;
+		}
+		return false;
+	}
+	
+	public void setInterruptEnable(int value){
+		this.int_enable = value;
+	}
+	public void setInterruptCode(int code){
+		this.int_code = code;
+	}
+	
+	public static void main(String args[]) throws IOException, UnimplementedInstruction{
+		CPU c = new CPU();
+		String outFile ="SpaceInvadersCPUState.txt";
+		PrintStream out = new PrintStream(outFile);
+		
+		int i=1;
+		while(true){
+			out.println("Step "+i);
+			c.ExecuteNextInstruction();
+			out.println(c.ToString());
+			i++;
+		}
+	}
 }

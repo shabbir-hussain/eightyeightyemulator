@@ -2,9 +2,13 @@ package video;
 
 import java.awt.Color;
 import java.awt.Graphics;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.awt.image.WritableRaster;
 
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 
 public class VideoPanel extends JPanel{
@@ -20,6 +24,13 @@ public class VideoPanel extends JPanel{
 		h = height;
 		image = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
 		raster = image.getRaster();
+		
+		InvaderKeyAdapter ka = new InvaderKeyAdapter();
+		
+		//Add a key listener to this panel
+		this.addKeyListener(ka);
+		this.setFocusable(true);
+	    this.requestFocusInWindow();
 	}
 
 	@Override
@@ -56,5 +67,37 @@ public class VideoPanel extends JPanel{
 		image.setRGB(x, y, rgb); //where x,y is the boundaries of the image
 
 	}	
+	
+	private class InvaderKeyAdapter extends KeyAdapter {
+		@Override
+		public void keyPressed(KeyEvent e) {
+			// TODO Auto-generated method stub
+			int key = e.getKeyCode();
+
+			if (key==KeyEvent.VK_ENTER){
+				JOptionPane.showMessageDialog(null, this, "Eggs are not supposed to be green.",0);
+			}
+	
+	        if ((key == KeyEvent.VK_LEFT) ) {
+	            
+	        }
+	
+	        if ((key == KeyEvent.VK_RIGHT) ) {
+	            
+	        }
+	
+	        if ((key == KeyEvent.VK_UP)) {
+	            
+	        }
+	
+	        if ((key == KeyEvent.VK_DOWN) ) {
+	            
+	        }
+	        if ((key == KeyEvent.VK_SPACE) ) {
+	            
+	        }
+		}
+	}
+
 
 }

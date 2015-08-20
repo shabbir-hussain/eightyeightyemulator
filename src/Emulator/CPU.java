@@ -1,20 +1,30 @@
 package Emulator;
 
+
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Dictionary;
+import java.util.HashMap;
 
 /**
  * This class emulates the 8080 microprocessor
  * @author Shabbir
  *
+ * notes: next step is to make all instructions generic
  */
 public class CPU {
 
 	String codeFile = "SpaceInvaders.mc";
 
+	//used to make all functions generic
+	public enum Register{
+		a,b,c,d,e,h,l,sp,pc,int_enable,int_code
+	}
+	HashMap<Register,Integer> registers;
+	
 	//Registers
 	int a;
 	int b;
@@ -27,6 +37,14 @@ public class CPU {
 	int pc;
 	int int_enable;
 	int int_code;
+	
+	int port1 = 0;
+	int port2i = 0;
+	int port2o = 0;
+	int port3o = 0;
+	int port4lo = 0;
+	int port4h = 0;
+	int port5o = 0;
 
 	//flags
 	boolean zero;
@@ -47,7 +65,20 @@ public class CPU {
 		
 		//set sp
 		sp = 0xf000;
-
+		
+		//init registers;
+		registers = new HashMap<Register,Integer>();
+		registers.put(Register.a, 0);
+		registers.put(Register.b, 0);
+		registers.put(Register.c, 0);
+		registers.put(Register.d, 0);
+		registers.put(Register.e, 0);
+		registers.put(Register.h, 0);
+		registers.put(Register.l, 0);
+		registers.put(Register.sp, 0xf000);
+		registers.put(Register.pc, 0);
+		registers.put(Register.int_enable, 0);
+		registers.put(Register.int_code, 0);		
 	}
 	
 	/**
@@ -95,18 +126,72 @@ public class CPU {
 		sign = (0x80 == (res & 0x80));
 		parity = parity(res&0xff, 8);
 	}
+	
+	//define primitive instructions
+	void Mov(Register var1, Register var2){
+		this.registers.put(var1, (this.registers.get(var2)&0xFF));
+	}
+	
+	//get memory offset
+	int GetMemLocation(int msb, int lsb){
+		int offset = (msb<<8)|(lsb&0xFF);
+		return this.mmry.read(offset);
+	}
+	
+	//concat two bytes
+	int To16Bit(int msb,int lsb){
+		int offset = (msb<<8)|(lsb&0xFF);
+		return offset;
+	}
+	
+	//getters for conversion 16->8 bit
+	int GetMSB(int largeByte){
+		return ((largeByte&0xFF00)>>8);
+	}
+	int GetLSB(int largeByte){
+		return largeByte&0xFF;
+	}
+	
+	//increment 16 bit returns 8 bit number
+	int Inx(int var1, int var2){
+		var2++;
+		if(var2>0xFF){
+			var2=0;
+			var1++;
+			if(var1>0xFF){
+				var1=0;
+			}
+		}
+		
+		return To16Bit(var1,var2);
+	}
+	
+	//decrement 8bit
+	int Dcr(int var1){
+		int res = var1==0? 0xFF:(var1 - 1);
+		zero = (res == 0);
+		sign = (0x80 == (res & 0x80));
+		parity = parity(res, 8);
+		return res;
+	}
 
-	public int ExecuteNextInstruction() throws UnimplementedInstruction{
+	public int ExecuteNextInstruction() throws UnimplementedInstruction, ProgramCounterOutOfBounds{
 		int cycles = 4;
+		
+		//debug statement
+		//System.out.println(this.ToString());
+		
+		if(pc>0x1fff){
+			//pc out of bounds
+			throw new ProgramCounterOutOfBounds();
+		}
+		
 		int opcode = mmry.read(pc); //get opCode
 		return ExecuteInstruction(opcode);
 	}
 	
 	public int ExecuteInstruction(int opcode) throws UnimplementedInstruction
 	{
-		
-
-
 		switch (opcode)
 		{
 		case 0x00: break;	//NOP
@@ -114,18 +199,19 @@ public class CPU {
 			c = mmry.read(pc+1);
 			b = mmry.read(pc+2);
 			pc+=2; 
-
 			break;
 		case 0x02: throw new UnimplementedInstruction();
-		case 0x03: throw new UnimplementedInstruction();
+		case 0x03:
+		{//inx B
+			int incremented = Inx(b,c);
+			b = this.GetMSB(incremented);
+			c = this.GetLSB(incremented);
+			break;
+		}
 		case 0x04: throw new UnimplementedInstruction();
 		case 0x05: 			//DCR    B
 		{
-			int res = b==0? 0xFF:(b - 1);
-			zero = (res == 0);
-			sign = (0x80 == (res & 0x80));
-			parity = parity(res, 8);
-			b = res;
+			b= Dcr(b);
 		}
 		break;
 		case 0x06: 							//MVI B,byte
@@ -144,7 +230,12 @@ public class CPU {
 			carry = ((res & 0xffff0000) > 0);
 		}
 		break;
-		case 0x0a: throw new UnimplementedInstruction();
+		case 0x0a: 
+		{ //ldax A, (BC)
+			int offset = ( b<<8 ) | ( c&0xFF );
+			int value = this.mmry.read(offset);	
+		}
+		break;
 		case 0x0b: throw new UnimplementedInstruction();
 		case 0x0c: throw new UnimplementedInstruction();
 		case 0x0d: 							//DCR    C
@@ -179,6 +270,9 @@ public class CPU {
 			e++;
 			if (e > 0xFF){
 				d++;
+				if(d>0xFF){
+					d=0;
+				}
 				e =0;
 			}
 			break;		
@@ -259,7 +353,18 @@ public class CPU {
 		break;
 		case 0x33: throw new UnimplementedInstruction();
 		case 0x34: throw new UnimplementedInstruction();
-		case 0x35: throw new UnimplementedInstruction();
+		case 0x35: 
+		{
+			int offset = (h<<8) | (l&0xFF);
+			int value = mmry.read(offset);
+			int res = value==0? 0xFF:value-1;
+			
+			zero = (res == 0);
+			sign = (0x80 == (res & 0x80));
+			parity = parity(res, 8);
+			mmry.write(offset, res);
+		}
+		break;
 		case 0x36: 							//MVI	M,byte
 		{					
 			//AC set if lower nibble of h was zero prior to dec
@@ -268,7 +373,11 @@ public class CPU {
 			pc++;
 		}
 		break;
-		case 0x37: throw new UnimplementedInstruction();
+		case 0x37: 
+		{ //stc set carry
+			carry = true;
+		}
+		break;
 		case 0x38: throw new UnimplementedInstruction();
 		case 0x39: throw new UnimplementedInstruction();
 		case 0x3a: 							//LDA    (word)
@@ -280,41 +389,77 @@ public class CPU {
 		break;
 		case 0x3b: throw new UnimplementedInstruction();
 		case 0x3c: throw new UnimplementedInstruction();
-		case 0x3d: throw new UnimplementedInstruction();
+		case 0x3d:
+			//DCR A 
+			int res = a==0? 0xFF:(a - 1);
+			zero = (res == 0);
+			sign = (0x80 == (res & 0x80));
+			parity = parity(res, 8);
+			a = res;
+			break;
 		case 0x3e: 							//MVI    A,byte
 			a = mmry.read(pc+1);
 			pc++;
 			break;
 		case 0x3f: throw new UnimplementedInstruction();
 		case 0x40: throw new UnimplementedInstruction();
-		case 0x41: throw new UnimplementedInstruction();
+		case 0x41: //MOV B,B
+		{
+			this.b=this.b;
+		}
+		break;
 		case 0x42: throw new UnimplementedInstruction();
 		case 0x43: throw new UnimplementedInstruction();
 		case 0x44: throw new UnimplementedInstruction();
-		case 0x45: throw new UnimplementedInstruction();
-		case 0x46: throw new UnimplementedInstruction();
+		case 0x45: //MOV B, L
+			{
+				this.b = this.l;
+			}
+			break;
+		case 0x46: 
+			{//mov b,m
+				int offset = (h<<8) | (l&0xFF);
+				b = mmry.read(offset);
+				break;
+			}
 		case 0x47: throw new UnimplementedInstruction();
 		case 0x48: throw new UnimplementedInstruction();
-		case 0x49: throw new UnimplementedInstruction();
+		case 0x49: 
+			{ //MOV C,C ie nop
+				this.c = this.c;		
+			}
+			break;
 		case 0x4a: throw new UnimplementedInstruction();
 		case 0x4b: throw new UnimplementedInstruction();
 		case 0x4c: throw new UnimplementedInstruction();
 		case 0x4d: throw new UnimplementedInstruction();
 		case 0x4e: throw new UnimplementedInstruction();
-		case 0x4f: throw new UnimplementedInstruction();
+		case 0x4f: 
+		{//mov c,a
+			c=a;
+			break;
+		}
 		case 0x50: throw new UnimplementedInstruction();
-		case 0x51: throw new UnimplementedInstruction();
+		case 0x51: 
+		{ // MOV D, B
+			this.d = this.b;
+		}
+		break;
 		case 0x52: throw new UnimplementedInstruction();
 		case 0x53: throw new UnimplementedInstruction();
 		case 0x54: throw new UnimplementedInstruction();
 		case 0x55: throw new UnimplementedInstruction();
 		case 0x56: 							//MOV D,M
 		{
-			int offset = (h<<8) | (l);
+			int offset = (h<<8) | (l&0xFF);
 			d = mmry.read(offset);
 		}
 		break;
-		case 0x57: throw new UnimplementedInstruction();
+		case 0x57: 
+			{//mov d,a
+				d=a;
+				break;			
+			}
 		case 0x58: throw new UnimplementedInstruction();
 		case 0x59: throw new UnimplementedInstruction();
 		case 0x5a: throw new UnimplementedInstruction();
@@ -327,7 +472,11 @@ public class CPU {
 			e = mmry.read(offset);
 		}
 		break;
-		case 0x5f: throw new UnimplementedInstruction();
+		case 0x5f: 
+		{ //mov e,a
+			e=a;
+			break;
+		}
 		case 0x60: throw new UnimplementedInstruction();
 		case 0x61: throw new UnimplementedInstruction();
 		case 0x62: throw new UnimplementedInstruction();
@@ -340,7 +489,11 @@ public class CPU {
 			h = mmry.read(offset);
 		}
 		break;
-		case 0x67: throw new UnimplementedInstruction();
+		case 0x67: 
+			{ //mov h,a
+				h=a;	
+				break;
+			}
 		case 0x68: throw new UnimplementedInstruction();
 		case 0x69: throw new UnimplementedInstruction();
 		case 0x6a: throw new UnimplementedInstruction();
@@ -351,7 +504,12 @@ public class CPU {
 		case 0x6f: l = a; break; //MOV L,A
 		case 0x70: throw new UnimplementedInstruction();
 		case 0x71: throw new UnimplementedInstruction();
-		case 0x72: throw new UnimplementedInstruction();
+		case 0x72: //MOV M,D
+		{
+			int offset =  (h<<8) | (l&0xFF);
+			this.mmry.write(offset, this.d);
+		}
+		break;
 		case 0x73: throw new UnimplementedInstruction();
 		case 0x74: throw new UnimplementedInstruction();
 		case 0x75: throw new UnimplementedInstruction();
@@ -363,7 +521,12 @@ public class CPU {
 		}
 		break;
 		case 0x78: throw new UnimplementedInstruction();
-		case 0x79: throw new UnimplementedInstruction();
+		case 0x79: 
+			{//mov a,c
+				a=(c&0xFF);
+				break;
+				//throw new UnimplementedInstruction();
+			}
 		case 0x7a: a  = d;  break;	//MOV A,D
 		case 0x7b: a  = e;  break;	//MOV A,E
 		case 0x7c: a  = h;  break;	//MOV A,H
@@ -423,7 +586,12 @@ public class CPU {
 		case 0xad: throw new UnimplementedInstruction();
 		case 0xae: throw new UnimplementedInstruction();
 		case 0xaf: a = a ^ a; LogicFlagsA();	break; //XRA A
-		case 0xb0: throw new UnimplementedInstruction();
+		case 0xb0: 
+			{ //ORA B
+				int ora = (b&0xFF)|a;
+				LogicFlagsA();
+				break;
+			}
 		case 0xb1: throw new UnimplementedInstruction();
 		case 0xb2: throw new UnimplementedInstruction();
 		case 0xb3: throw new UnimplementedInstruction();
@@ -479,12 +647,32 @@ public class CPU {
 		}
 		break;
 		case 0xc7: throw new UnimplementedInstruction();
-		case 0xc8: throw new UnimplementedInstruction();
+		case 0xc8: 
+			//RZ
+			if(zero)
+			{		
+				pc = (mmry.read(sp)&0xFF) | (mmry.read(sp+1) << 8);
+				sp += 2;
+				return 0;
+			}else{
+				//do nothing
+				break;
+			}
 		case 0xc9: 						//RET
 			pc = (mmry.read(sp)&0xFF) | (mmry.read(sp+1) << 8);
 			sp += 2;
 			return 0;
-		case 0xca: throw new UnimplementedInstruction();
+		case 0xca: 
+		if(this.zero)
+		{
+			pc = (mmry.read(pc+2) << 8) | (mmry.read(pc+1)&0xFF);
+			pc--;//fix auto increment
+			
+		}
+		else{
+			pc+=2;
+		}
+		break;
 		case 0xcb: throw new UnimplementedInstruction();
 		case 0xcc: throw new UnimplementedInstruction();
 		case 0xcd: 						//CALL adr
@@ -506,7 +694,14 @@ public class CPU {
 			sp += 2;
 		}
 		break;
-		case 0xd2: throw new UnimplementedInstruction();
+		case 0xd2: //JNCarry
+			if (!carry){
+				pc = (mmry.read(pc+2) << 8) | (mmry.read(pc+1)&0xFF);
+				pc--;//fix auto inr
+			}
+			else
+				pc += 2;
+			break;
 		case 0xd3: 
 			//Don't know what to do here (yet)
 			pc++;
@@ -521,10 +716,26 @@ public class CPU {
 		break;
 		case 0xd6: throw new UnimplementedInstruction();
 		case 0xd7: throw new UnimplementedInstruction();
-		case 0xd8: throw new UnimplementedInstruction();
+		case 0xd8: 
+			{
+				throw new UnimplementedInstruction();
+			}
 		case 0xd9: throw new UnimplementedInstruction();
-		case 0xda: throw new UnimplementedInstruction();
-		case 0xdb: throw new UnimplementedInstruction();
+		case 0xda: 
+			//JC
+			if(carry)
+			{		
+				pc = (mmry.read(pc+2) << 8) | (mmry.read(pc+1)&0xFF);
+				pc--;//fix auto inr
+			}
+			else{
+				pc+=2;
+			}
+			break;
+		case 0xdb: //input keys			
+			a = readPort(pc+1);
+			pc++;
+			break;
 		case 0xdc: throw new UnimplementedInstruction();
 		case 0xdd: throw new UnimplementedInstruction();
 		case 0xde: throw new UnimplementedInstruction();
@@ -623,6 +834,103 @@ public class CPU {
 		return 0;
 	}
 
+	private int readPort(int port) {
+		// Port 1 maps the keys for space invaders
+		  // Bit 0 = coin slot
+		  // Bit 1 = two players button
+		  // Bit 2 = one player button
+		  // Bit 4 = player one fire
+		  // Bit 5 = player one left
+		  // Bit 6 = player one right
+		  // Port 2 maps player 2 controls and dip switches
+		  // Bit 0,1 = number of ships
+		  // Bit 2   = mode (1=easy, 0=hard)
+		  // Bit 4   = player two fire
+		  // Bit 5   = player two left
+		  // Bit 6   = player two right
+		  // Bit 7   = show or hide coin info
+		switch(port) {
+		  case 1:
+		    {
+		      int r = this.port1;
+		      this.port1 &= 0xFE;
+		      return r;
+		    }
+		  case 2:
+		    {
+		      return (this.port2i & 0x8f) | (this.port1 & 0x70);
+		    }
+		    
+		  case 3:
+		    {
+			    //TODO: Figure out port 3
+		    	break;
+		    	//return ((((this.port4hi << 8) | (this.port4lo)) << this.port2o) >> 8) & 0xFF;
+		    }
+		  default:
+		    break;
+		  }
+		  return 0;
+				
+	}
+	
+	private void writePort (int port, int value) {
+//		  switch(port) {
+//		  case 2:
+//		    {
+//		      this.port2o = value;
+//		      return;
+//		    }
+//		    break;
+//		  case 3:
+//		    {
+//		      // Connected to the sound hardware
+//		      // Bit 1 = spaceship sound (looped)
+//		      // Bit 2 = Shot
+//		      // Bit 3 = Your ship hit
+//		      // Bit 4 = Invader hit
+//		      // Bit 5 = Extended play sound
+//		      if (this.sound) {
+//			for(int i=0; i< 5; ++i) {
+//			  int b = 1 << i;
+//			  if(!(this.port3o & b) && (v & b))
+//			    sound.apply(this, [i+1]);
+//			}
+//		      }
+//
+//		      this.port3o = v;
+//
+//		    }
+//		    break;
+//		  case 4:
+//		    {
+//		      this.port4lo = this.port4hi;
+//		      this.port4hi = v;
+//		    }
+//		    break;
+//		  case 5:
+//		    {
+//		      // Plays sounds
+//		      // Bit 0 = invaders sound 1
+//		      // Bit 1 = invaders sound 2
+//		      // Bit 2 = invaders sound 3
+//		      // Bit 3 = invaders sound 4
+//		      // Bit 4 = spaceship hit
+//		      // Bit 5 = amplifier enabled/disabled
+//		      if (this.sound) {
+//			for(var i=0; i< 5; ++i) {
+//			  var b = 1 << i;
+//			  if(!(this.port5o & b) && (v & b))
+//			    sound.apply(this, [i+11]);
+//			}
+//		      }
+//		      this.port5o = v;
+//		    }
+//		    break;
+//		  }
+		}
+
+
 	final protected static char[] hexArray = "0123456789ABCDEF".toCharArray();
 	public static String bytesToHex(int bytes) {
 	    char[] hexChars = new char[2];
@@ -648,7 +956,7 @@ public class CPU {
 	}
 	
 	//cpu execution loop
-	public void  executionLoop() throws UnimplementedInstruction{
+	public void  executionLoop() throws UnimplementedInstruction, ProgramCounterOutOfBounds{
 
 		for(int i=0;i<16667;i++){
 			//do instruction
@@ -689,7 +997,7 @@ public class CPU {
 		this.int_code = code;
 	}
 	
-	public static void main(String args[]) throws IOException, UnimplementedInstruction{
+	public static void main(String args[]) throws IOException, UnimplementedInstruction, ProgramCounterOutOfBounds{
 		CPU c = new CPU();
 		String outFile ="SpaceInvadersCPUState.txt";
 		PrintStream out = new PrintStream(outFile);
@@ -702,4 +1010,5 @@ public class CPU {
 			i++;
 		}
 	}
+	
 }

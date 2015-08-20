@@ -9,6 +9,7 @@ import java.nio.file.Paths;
 
 public class Disassembler {
 
+	//Note some bytes are missing because they are set to data rather than opcode
 	public static void main(String args[]) throws IOException{
 		
 		String outFile ="SpaceInvadersASM.txt";
@@ -30,8 +31,7 @@ public class Disassembler {
 		for(int i=0;i<data.length;i++){
 			idata[i] = data[i] &0xFF;
 		}
-		
-		
+				
 		//disassembly loop
 		for(int i=0;i<idata.length;){
 			i+= Disassemble8080Op(idata,i,out);

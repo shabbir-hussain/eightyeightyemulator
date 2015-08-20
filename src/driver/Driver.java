@@ -10,6 +10,7 @@ import javax.swing.Timer;
 
 import video.VideoFrame;
 import Emulator.CPU;
+import Emulator.ProgramCounterOutOfBounds;
 import Emulator.UnimplementedInstruction;
 
 
@@ -39,7 +40,7 @@ public class Driver implements ActionListener {
 	}
 
 
-	public void executionLoop() throws UnimplementedInstruction{
+	public void executionLoop() throws UnimplementedInstruction, ProgramCounterOutOfBounds{
 
 		//setup timer for interupts
 		Timer t = new Timer(TIMEOUT, this);
@@ -48,7 +49,8 @@ public class Driver implements ActionListener {
 		int i=1;
 		while(true){
 			out.println("Step "+i);
-			cpu.ExecuteNextInstruction();
+			cpu.executionLoop();
+			//cpu.ExecuteNextInstruction();
 			out.println(cpu.ToString());
 			i++;
 		}
@@ -56,7 +58,7 @@ public class Driver implements ActionListener {
 
 
 
-	public void fireInterupt(int i){
+	public void fireInterrupt(int i){
 
 		if (cpu.intEnabled()) {
 			cpu.setInterruptEnable(0);
@@ -103,15 +105,13 @@ public class Driver implements ActionListener {
 
 	}
 
-	public static void main(String args[]) throws IOException, UnimplementedInstruction{
+	public static void main(String args[]) throws IOException, UnimplementedInstruction, ProgramCounterOutOfBounds{
 
 		//create obj
 		Driver drvr = new Driver();
 
+		//run
 		drvr.executionLoop();
-
-
-
 	}
 
 }

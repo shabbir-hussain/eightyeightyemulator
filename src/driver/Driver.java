@@ -99,9 +99,9 @@ public class Driver implements ActionListener {
 	@Override
 	public void actionPerformed(ActionEvent arg0) {
 		//timed event fired
-		fireInterupt(1);
+		fireInterrupt(1);
 		this.vblank();
-		fireInterupt(2);
+		fireInterrupt(2);
 
 	}
 

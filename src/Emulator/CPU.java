@@ -67,18 +67,34 @@ public class CPU {
 		sp = 0xf000;
 		
 		//init registers;
+		
 		registers = new HashMap<Register,Integer>();
-		registers.put(Register.a, 0);
-		registers.put(Register.b, 0);
-		registers.put(Register.c, 0);
-		registers.put(Register.d, 0);
-		registers.put(Register.e, 0);
-		registers.put(Register.h, 0);
-		registers.put(Register.l, 0);
-		registers.put(Register.sp, 0xf000);
-		registers.put(Register.pc, 0);
-		registers.put(Register.int_enable, 0);
-		registers.put(Register.int_code, 0);		
+		for(Register r:Register.values()){
+			writeToRegister(r,0);
+		}
+		writeToRegister(Register.sp, 0xf000);
+	}
+	
+	/**
+	 * Writes to the register dictionary consistently
+	 * @param r
+	 * @param value
+	 */
+	void writeToRegister(Register r, int value){
+		registers.put(r, truncateTo8Bit(value));
+	}
+	
+	int truncateTo8Bit(int value){
+		return value&0xff;
+	}
+	
+	/**
+	 * Returns int value from register
+	 * @param r
+	 * @return
+	 */
+	int readFromRegister(Register r){
+		return registers.get(r).intValue();
 	}
 	
 	/**
@@ -94,6 +110,7 @@ public class CPU {
 
 	/**
 	 * checks for parity of byte
+	 * True means even parity
 	 * @param x
 	 * @param size
 	 * @return
@@ -113,29 +130,713 @@ public class CPU {
 
 	void LogicFlagsA()
 	{
-		carry = false;auxiliaryCarry = false;
+		carry = false;
+		auxiliaryCarry = false;
 		zero = (a == 0);
 		sign = (0x80 == (a & 0x80));
 		parity = parity(a, 8);
 	}
 
-	void ArithFlagsA(int res)
+	void ArithFlags(int res)
 	{
 		carry = (res > 0xff);
+		ArithFlagsWithoutCarry(res);
+	}
+	
+	void ArithFlagsWithoutCarry(int res)
+	{
 		zero = ((res&0xff) == 0);
 		sign = (0x80 == (res & 0x80));
 		parity = parity(res&0xff, 8);
+		auxiliaryCarry = 0x10 == (res & 0x10);
 	}
 	
-	//define primitive instructions
-	void Mov(Register var1, Register var2){
-		this.registers.put(var1, (this.registers.get(var2)&0xFF));
+	///////////////////////////////////////INSTRUCTION DEFINNITIONS///////////////////////////////////////
+	/**
+	 * moves from var2 to var1
+	 * @param var1 dest
+	 * @param var2 src
+	 */
+	void MOV(Register var1, Register var2){
+		this.writeToRegister(var1, (this.readFromRegister(var2)&0xFF));
 	}
 	
+	/**
+	 * Adds to the accumulator
+	 * @param r
+	 */
+	void ADD(Register r){
+		int value = this.readFromRegister(r);
+		int sum = value + this.readFromRegister(Register.a);
+		this.writeToRegister(Register.a, sum);
+		ArithFlags(sum);
+	}
+	void ADD(int val){
+		int value = val;
+		int sum = value + this.readFromRegister(Register.a);
+		this.writeToRegister(Register.a, sum);
+		ArithFlags(sum);
+	}
+	
+	/**
+	 * Adds to the accumulator with carry
+	 * @param r
+	 */
+	void ADC(Register r){
+		int value = this.readFromRegister(r);
+		int sum = value + this.readFromRegister(Register.a);
+		sum += carry ? 1 : 0;
+		this.writeToRegister(Register.a, sum);
+		ArithFlags(sum);
+	}
+	
+	/**
+	 * Subtracts from the accumulator
+	 * @param r
+	 */
+	void SUB(Register r){
+		int value = this.readFromRegister(r);
+		int diff = this.readFromRegister(Register.a) - value;
+		this.writeToRegister(Register.a, diff);
+		LogicFlagsA();
+	}
+	void SUB(int val){
+		int value = val;
+		int diff = this.readFromRegister(Register.a) - value;
+		this.writeToRegister(Register.a, diff);
+		LogicFlagsA();
+	}
+	
+	/**
+	 * Subtracts from the accumulator with carry
+	 * @param r
+	 */
+	void SBB(Register r ){
+		int value = this.readFromRegister(r);
+		int diff = this.readFromRegister(Register.a) - value;
+		diff -= carry ? 1 : 0;
+		this.writeToRegister(Register.a, diff);
+		LogicFlagsA();
+	}
+	
+	/**
+	 * And with the accumulator
+	 * @param r
+	 */
+	void ANA(Register r){
+		int value = this.readFromRegister(r);
+		int and = this.readFromRegister(Register.a) & value;
+		this.writeToRegister(Register.a, and);
+		ArithFlags(and);
+	}
+	void ANA(int val){
+		int value = val;
+		int and = this.readFromRegister(Register.a) & value;
+		this.writeToRegister(Register.a, and);
+		ArithFlags(and);
+	}
+	
+	/**
+	 * Or with the accumulator
+	 * @param r
+	 */
+	void ORA(Register r){
+		int value = this.readFromRegister(r);
+		int or = this.readFromRegister(Register.a) | value;
+		this.writeToRegister(Register.a, or);
+		ArithFlags(or);
+	}
+	void ORA(int val){
+		int value = val;
+		int or = this.readFromRegister(Register.a) | value;
+		this.writeToRegister(Register.a, or);
+		ArithFlags(or);
+	}
+	
+	/**
+	 * Cmp with the accumulator
+	 * @param r
+	 */
+	void CMP(Register r){
+		int value = this.readFromRegister(r);
+		int diff = this.readFromRegister(Register.a) - value;
+		LogicFlagsA();
+	}
+	
+	/** 
+	 * 16 bit load operation
+	 * @param rmsb
+	 * @param rlsb
+	 * @param vmsb
+	 * @param vlsb
+	 */
+	void LXI(Register rmsb, Register rlsb, int vmsb, int vlsb){
+		writeToRegister(rmsb,vmsb);
+		writeToRegister(rlsb,vlsb);
+	}
+	
+	/**
+	 * Stores the value of the accumulator to memory
+	 * @param rmsb
+	 * @param rlsb
+	 */
+	void STAX(Register rmsb, Register rlsb){
+		int vmsb = this.readFromRegister(rmsb);
+		int vlsb = this.readFromRegister(rlsb);
+		int value = this.readFromRegister(Register.a);
+		WriteToMemoryLocation(vmsb,vlsb,value);
+	}
+	
+
+	/**
+	 * Writes Register H and L to memory. this is a 3 byte operation
+	 * @param msb of memory offset
+	 * @param lsb of memory offset
+	 */
+	void SHLD(int msb, int lsb){
+		int offset = To16Bit(msb,lsb);
+		this.mmry.write(offset, this.readFromRegister(Register.l));
+		offset++;
+		this.mmry.write(offset, this.readFromRegister(Register.h));
+	}
+	
+	/**
+	 * 16 increment
+	 * @param rmsb
+	 * @param rlsb
+	 */
+	void INX(Register rmsb, Register rlsb){
+		int value = this.To16Bit(this.readFromRegister(rmsb), this.readFromRegister(rlsb));
+		value++;
+		this.writeToRegister(rmsb, this.GetMSB(value));
+		this.writeToRegister(rlsb, this.GetLSB(value));
+	}
+	
+	/**
+	 * 8 bit increment
+	 * @param r
+	 */
+	void INR(Register r){
+		int value = this.readFromRegister(r);
+		value++;
+		this.writeToRegister(r, GetLSB(value));
+		ArithFlagsWithoutCarry(value);
+	}
+	/**
+	 * increment an 8bit value in memory
+	 */
+	void INRM(){
+		int vlsb = this.readFromRegister(Register.l);
+		int vmsb = this.readFromRegister(Register.h);
+		
+		int value = GetMemLocation(vmsb,vlsb);
+		value++;
+		WriteToMemoryLocation(vmsb,vlsb,GetLSB(value));
+		ArithFlagsWithoutCarry(value);
+	}
+	/**
+	 * Decrement a register
+	 * @param r
+	 */
+	void DCR(Register r){
+		int value = this.readFromRegister(r);
+		value--;
+		this.writeToRegister(r, GetLSB(value));
+		ArithFlagsWithoutCarry(value);
+	}
+	/**
+	 * decrement a 8bit value in memory
+	 */
+	void DCRM(){
+		int vlsb = this.readFromRegister(Register.l);
+		int vmsb = this.readFromRegister(Register.h);
+		
+		int value = GetMemLocation(vmsb,vlsb);
+		value--;
+		WriteToMemoryLocation(vmsb,vlsb,GetLSB(value));
+		ArithFlagsWithoutCarry(value);
+	}
+	
+	/**
+	 * Move immediate into register
+	 * @param r
+	 * @param value
+	 */
+	void MVI(Register r, int value){
+		this.writeToRegister(r, value);
+	}
+	/**
+	 * Move immediate into memory
+	 * @param value
+	 */
+	void MVIM(int value){
+		int vlsb = this.readFromRegister(Register.l);
+		int vmsb = this.readFromRegister(Register.h);
+		
+		WriteToMemoryLocation(vmsb,vlsb,GetLSB(value));
+	}
+	
+	/**
+	 * Rotate Accumulator left
+	 */
+	void RLC(){
+		int value = this.readFromRegister(Register.a);
+		carry = (value & 0x80) == 0x80 ?  true: false;
+		
+		value = value << 1; //shift left
+		value = value |0x01; //set incoming bit
+		
+		this.writeToRegister(Register.a, GetLSB(value));
+	}
+	/**
+	 * Rotate Accumulator right
+	 */
+	void RRC(){
+		int value = this.readFromRegister(Register.a);
+		
+		carry = value %2 == 1 ?  true: false;		
+		value = value >> 1; //shift right
+		value = value &0x7F; //set incoming bit to 0
+		
+		this.writeToRegister(Register.a, GetLSB(value));
+	}
+	
+	/**
+	 * Rotate Accumulator Left Through Carry
+	 */
+	void RAL(){
+		boolean leading = carry;
+		int value = this.readFromRegister(Register.a);
+		carry = (value & 0x80) == 0x80 ?  true: false;
+		
+		value = value << 1; //shift left
+		if(leading){//set incoming bit to 1 or 0
+			value = value | 0x01;
+		}else{
+			value = value & 0xFE;
+		}
+		
+		this.writeToRegister(Register.a, GetLSB(value));
+	}
+	
+	/**
+	 * Rotate Accumulator Right	 Through Carry
+	 */
+	void RAR(){
+		boolean leading = carry;
+		int value = this.readFromRegister(Register.a);
+		
+		carry = value %2 == 1 ?  true: false;		
+		value = value >> 1; //shift right
+		if(leading){ //set incoming bit to 1 or 0
+			value = value | 0x80;
+		}else{
+
+			value = value &0x7F; 
+		}
+		
+		this.writeToRegister(Register.a, GetLSB(value));
+	}
+	
+	/**
+	 * special decimal adjust instruction
+	 */
+	void DAA(){
+		int registerA = this.readFromRegister(Register.a);
+		int lsb = registerA & 0x0F;
+		if(lsb>9 || this.auxiliaryCarry){
+			registerA+=6;
+			this.ArithFlags(registerA);
+		}
+		
+		int msb = registerA & 0xF0;
+		if(msb>0x90 || this.carry){
+			registerA+= 0x60;
+			this.ArithFlags(registerA);
+		}		
+		this.writeToRegister(Register.a, registerA);		
+	}
+	
+	/**
+	 * set carry to true
+	 */
+	void STC(){
+		this.carry = true;
+	}
+	
+	/**
+	 * Decimal add
+	 * @param rmsb
+	 * @param rlsb
+	 */
+	void DAD(Register rmsb, Register rlsb){
+		int value = this.To16Bit(this.readFromRegister(rmsb), this.readFromRegister(rlsb));
+		int hl = this.To16Bit(this.readFromRegister(Register.h), this.readFromRegister(Register.l));
+		int sum = value+hl;
+		
+		this.writeToRegister(Register.h, GetMSB(sum));
+		this.writeToRegister(Register.l, GetLSB(sum));
+		
+		this.carry=false;
+	}
+	
+	/**
+	 * Load a value to A from memory
+	 * @param rmsb
+	 * @param rlsb
+	 */
+	void LDAX(Register rmsb, Register rlsb){
+		int vmsb = this.readFromRegister(rmsb);
+		int vlsb = this.readFromRegister(rlsb);
+		int value = GetMemLocation(vmsb,vlsb);
+		
+		this.writeToRegister(Register.a, value);
+	}
+	
+	/**
+	 * Load to H and L direct
+	 * @param msb
+	 * @param lsb
+	 */
+	void LHLD(int msb, int lsb){
+		int offset = To16Bit(msb,lsb);
+		int lValue = this.mmry.read(offset);
+		offset++;
+		int hValue = this.mmry.read(offset);
+		
+		this.writeToRegister(Register.l, lValue);
+		this.writeToRegister(Register.h, hValue);
+	}
+	
+	/**
+	 * 16 decrement
+	 * @param rmsb
+	 * @param rlsb
+	 */
+	void DCX(Register rmsb, Register rlsb){
+		int value = this.To16Bit(this.readFromRegister(rmsb), this.readFromRegister(rlsb));
+		value--;
+		this.writeToRegister(rmsb, this.GetMSB(value));
+		this.writeToRegister(rlsb, this.GetLSB(value));
+	}
+	
+	/**
+	 * One'a complement of Register A
+	 */
+	void CMA(){
+		int value = this.readFromRegister(Register.a);
+		value = ~value;
+		this.writeToRegister(Register.a, value);
+	}
+	
+	/**
+	 * Complement Carry
+	 */
+	void CMC(){
+		carry = carry ? false:true;
+	}
+	
+	/**
+	 * 
+	 * @throws InterruptedException
+	 */
+	void HLT() throws InterruptedException{
+		//TODO: lookup thread waiting
+		//this.wait();
+	}
+	
+	/**
+	 * Return from call
+	 */
+	void RET(){
+		this.writeToRegister(Register.pc, (mmry.read(this.readFromRegister(Register.sp))&0xFF) | (mmry.read(this.readFromRegister(Register.sp)+1) << 8));
+		this.writeToRegister(Register.sp, this.readFromRegister(Register.sp)+2);
+	}
+	
+	/**
+	 * Return not zero
+	 */
+	void RNZ(){
+		if(!this.zero){
+			RET();
+		}
+	}
+	
+	/**
+	 * Return if zero
+	 */
+	void RZ(){
+		if(this.zero){
+			RET();
+		}
+	}
+	
+	/**
+	 * Return if Carry
+	 */
+	void RC(){
+		if(this.carry){
+			RET();
+		}
+	}
+	
+	/**
+	 * Return not Carry
+	 */
+	void RNC(){
+		if(!this.carry){
+			RET();
+		}
+	}
+	
+	/**
+	 * Return if minus (negative)
+	 */
+	void RM(){
+		if(this.sign){
+			RET();
+		}
+	}
+	
+	/**
+	 * Return if positive
+	 */
+	void RP(){
+		if(!this.sign){
+			RET();
+		}
+	}
+	
+	/**
+	 * Return if parity even
+	 */
+	void RPE(){
+		if(this.parity){
+			RET();
+		}
+	}
+	
+	void RPO(){
+		if(!this.parity){
+			RET();
+		}
+	}
+	
+	/**
+	 * Pop from stack 
+	 * @param rmsb
+	 * @param rlsb
+	 */
+	void POP(Register rmsb, Register rlsb){
+		int spValue = mmry.read(this.readFromRegister(Register.sp));
+		this.writeToRegister(rlsb,mmry.read(spValue));
+		this.writeToRegister(rmsb,mmry.read(spValue+1));
+		
+		//move stack pointer
+		this.writeToRegister(Register.sp, spValue+2);
+	}
+	
+	/**
+	 * Push to Stack
+	 * @param rmsb
+	 * @param rlsb
+	 */
+	void PUSH(Register rmsb, Register rlsb){
+		int spValue = mmry.read(this.readFromRegister(Register.sp));
+		mmry.write(spValue-1,this.readFromRegister(rmsb));
+		mmry.write(spValue-2, this.readFromRegister(rlsb));
+		
+		//move stack pointer
+		this.writeToRegister(Register.sp, spValue-2);
+	}
+	
+	/**
+	 * Special Case of Pop
+	 * Pop values into accumulator and flags
+	 * flags are encoded into a byte as follows:
+	 * s|z|0|ac|0|p|1|c
+	 */
+	void POPPSW(){
+		int spVal = this.readFromRegister(Register.sp);
+		this.writeToRegister(Register.a, mmry.read(spVal+1));
+		
+		int psw = mmry.read(spVal);
+		carry = (0x01 == (psw & 0x01));
+		parity  = (0x04 == (psw & 0x04));
+		auxiliaryCarry = (0x10 == (psw & 0x10));
+		zero  = (0x40 == (psw & 0x40));
+		sign  = (0x80 == (psw & 0x80));
+		
+		this.writeToRegister(Register.sp, spVal+2);
+	}
+	
+	/**
+	 * Special Case of PUSH
+	 * Push values from accumulator and flags
+	 * flags are encoded into a byte as follows:
+	 * s|z|0|ac|0|p|1|c
+	 */
+	void PUSHPSW(){
+		int spVal = this.readFromRegister(Register.sp);
+		mmry.write(spVal-1, this.readFromRegister(Register.a));
+		
+		int psw =  2;
+		psw |= carry ? 0x01:0x00;
+		psw |= parity ? 0x04:0x00;
+		psw |= auxiliaryCarry ? 0x10:0x00;		
+		psw |= zero ? 0x40:0x00;		
+		psw |= sign ? 0x80:0x00;
+		
+		mmry.write(spVal-2, psw);
+		
+		this.writeToRegister(Register.sp, spVal-2);
+	}
+	
+	/**
+	 * Jump to address 
+	 */
+	void JMP(){
+		int pcVal = this.readFromRegister(Register.pc);
+		
+		int pcJmp = (mmry.read(pcVal+2) << 8) | (mmry.read(pcVal+1)&0xFF);
+		pcJmp--;//fix auto increment
+		
+		this.writeToRegister(Register.pc, pcJmp);
+	}
+	
+	void JNZ(){
+		if(!zero){
+			JMP();
+		}
+	}
+	
+	void JNC(){
+		if(!carry){
+			JMP();
+		}
+	}
+	
+	void JPO(){
+		if(!parity){
+			JMP();
+		}
+	}
+	
+	void JP(){
+		if(parity){
+			JMP();
+		}
+	}
+	
+	/**
+	 * Exchange stack with HL
+	 */
+	void XTHL(){
+		int spVal = this.readFromRegister(Register.sp);
+		int spVal1 = mmry.read(sp);
+		int spVal2 = mmry.read(sp+1);
+		
+		int hVal = this.readFromRegister(Register.h);
+		int lVal = this.readFromRegister(Register.l);
+		
+		this.writeToRegister(Register.l, spVal1);
+		this.writeToRegister(Register.h, spVal2);
+		
+		mmry.write(sp, lVal);
+		mmry.write(sp+1, hVal);
+		
+	}
+	
+	/**
+	 * Call subroutine
+	 */
+	void CALL(){
+		int pcVal = this.readFromRegister(Register.pc);
+		int	ret = pcVal+3; //return address is the next instruction
+		
+		int spVal = this.readFromRegister(Register.sp);
+		mmry.write(spVal-1, ((ret >> 8) & 0xff));
+		mmry.write(spVal-2, (ret & 0xff));
+		
+		this.writeToRegister(Register.sp, spVal-2);
+		
+		pcVal = (mmry.read(pcVal+2) << 8) | mmry.read(pcVal+1);
+		this.writeToRegister(Register.pc, pcVal);
+	}
+	void CALL(int addr){
+		int pcVal = this.readFromRegister(Register.pc);
+		int	ret = pcVal+1; //return address is the next instruction
+		
+		int spVal = this.readFromRegister(Register.sp);
+		mmry.write(spVal-1, ((ret >> 8) & 0xff));
+		mmry.write(spVal-2, (ret & 0xff));
+		
+		this.writeToRegister(Register.sp, spVal-2);
+		
+		pcVal =addr;
+		this.writeToRegister(Register.pc, pcVal);
+	}
+	
+	void CNZ(){
+		if(!zero){
+			CALL();
+		}
+	}
+	
+	void CNC(){
+		if(!carry){
+			CALL();
+		}
+	}
+	
+	void CPO(){
+		if(!parity){
+			CALL();
+		}
+	}
+	
+	void CP(){
+		if(parity){
+			CALL();
+		}
+	}
+	
+	/**
+	 * Call an ISR based on the opcode
+	 * @param rstOpCode
+	 */
+	void RST(int rstOpCode){
+		int addr = (rstOpCode & 0x38)>>3;
+		CALL(addr);
+	}
+	
+	/**
+	 * Load PC
+	 */
+	void PCHL(){
+		int hVal = this.readFromRegister(Register.h);
+		int lVal = this.readFromRegister(Register.l);
+		int pcVal = this.To16Bit(hVal, lVal);
+		
+		this.writeToRegister(Register.pc, pcVal);
+	}
+	
+	void SPHL(){
+		int hVal = this.readFromRegister(Register.h);
+		int lVal = this.readFromRegister(Register.l);
+		int spVal = this.To16Bit(hVal, lVal);
+		
+		this.writeToRegister(Register.sp, spVal);
+	}
+	////////////////////////////////////////////////////////////////////////////////////////////////////
 	//get memory offset
 	int GetMemLocation(int msb, int lsb){
 		int offset = (msb<<8)|(lsb&0xFF);
 		return this.mmry.read(offset);
+	}
+	void WriteToMemoryLocation(int msb, int lsb, int value){
+		int offset = (msb<<8)|(lsb&0xFF);
+		this.mmry.write(offset, value);
 	}
 	
 	//concat two bytes

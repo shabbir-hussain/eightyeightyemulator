@@ -43,6 +43,17 @@ public class Memory {
 		}
 	}
 	
+	/**
+	 * Returns a snapshot of the memory
+	 * @return byte buffer representing memory
+	 */
+	public byte[] memDump(){
+		for(int i=0;i<MemorySize;i++){
+			bBuffer[i]=(byte)memBuffer[i];
+		}
+		return this.bBuffer;
+	}
+	
 	
 	/**
 	 * Converts two bytes into a short by appending them

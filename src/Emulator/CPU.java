@@ -342,7 +342,7 @@ public class CPU {
 		int value = this.readFromRegister(r);
 		value--;
 		this.writeToRegister(r, GetLSB(value));
-		ArithFlagsWithoutCarry(value);
+		ArithFlagsWithoutCarry(value);	
 	}
 	/**
 	 * decrement a 8bit value in memory
@@ -384,7 +384,7 @@ public class CPU {
 		carry = (value & 0x80) == 0x80 ?  true: false;
 		
 		value = value << 1; //shift left
-		value = value |0x01; //set incoming bit
+		value = carry? (value |0x01):(value & 0xFE); //set incoming bit
 		
 		this.writeToRegister(Register.a, GetLSB(value));
 	}
@@ -396,7 +396,7 @@ public class CPU {
 		
 		carry = value %2 == 1 ?  true: false;		
 		value = value >> 1; //shift right
-		value = value &0x7F; //set incoming bit to 0
+		value = carry? (value | (0x80)):(value & (0x7F)); //set incoming bit to 0
 		
 		this.writeToRegister(Register.a, GetLSB(value));
 	}
@@ -477,7 +477,7 @@ public class CPU {
 		this.writeToRegister(Register.h, GetMSB(sum));
 		this.writeToRegister(Register.l, GetLSB(sum));
 		
-		this.carry=false;
+		this.carry=sum>0xFFFF?true:false;
 	}
 	
 	/**
@@ -853,19 +853,6 @@ public class CPU {
 		return largeByte&0xFF;
 	}
 	
-	//increment 16 bit returns 8 bit number
-	int Inx(int var1, int var2){
-		var2++;
-		if(var2>0xFF){
-			var2=0;
-			var1++;
-			if(var1>0xFF){
-				var1=0;
-			}
-		}
-		
-		return To16Bit(var1,var2);
-	}
 	
 	//decrement 8bit
 	int Dcr(int var1){
@@ -897,113 +884,132 @@ public class CPU {
 		{
 		case 0x00: break;	//NOP
 		case 0x01: 			//LXI	B,word
-			c = mmry.read(pc+1);
-			b = mmry.read(pc+2);
+			this.LXI(Register.b, Register.c, mmry.read(pc+2), mmry.read(pc+1));
 			pc+=2; 
 			break;
-		case 0x02: throw new UnimplementedInstruction();
+		case 0x02: 
+		{
+			// STAX
+			this.STAX(Register.b, Register.c);
+		}
+		break;
 		case 0x03:
-		{//inx B
-			int incremented = Inx(b,c);
-			b = this.GetMSB(incremented);
-			c = this.GetLSB(incremented);
+		{   //inx B
+			this.INX(Register.b, Register.c);
 			break;
 		}
-		case 0x04: throw new UnimplementedInstruction();
+		case 0x04: 
+		{
+			//INR B
+			this.INR(Register.b);
+		}
+		break;
 		case 0x05: 			//DCR    B
 		{
-			b= Dcr(b);
+			this.DCR(Register.b);
 		}
 		break;
 		case 0x06: 							//MVI B,byte
-			b = mmry.read(pc+1);
+			this.MVI(Register.b,  mmry.read(pc+1));
 			pc++;
 			break;
-		case 0x07: throw new UnimplementedInstruction();
-		case 0x08: throw new UnimplementedInstruction();
+		case 0x07: 
+		{
+			// RLC
+			this.RLC();
+		}
+		break;
+		case 0x08: break; // NOP	
 		case 0x09: 							//DAD B
 		{
-			int hl = (h << 8) | (l&0xFF);
-			int bc = (b << 8) | (c&0xFF);
-			int res = hl + bc;
-			h = (res & 0xff00) >> 8;
-			l = res & 0xff;
-			carry = ((res & 0xffff0000) > 0);
+			this.DAD(Register.b, Register.c);
 		}
 		break;
 		case 0x0a: 
-		{ //ldax A, (BC)
-			int offset = ( b<<8 ) | ( c&0xFF );
-			int value = this.mmry.read(offset);	
+		{   //ldax A, (BC)
+			this.LDAX(Register.b, Register.c);
 		}
 		break;
-		case 0x0b: throw new UnimplementedInstruction();
-		case 0x0c: throw new UnimplementedInstruction();
+		case 0x0b:
+		{
+			//DCX B
+			this.DCX(Register.b, Register.c);
+		}
+		break;
+		case 0x0c: 
+		{
+			this.INR(Register.c); //INR C
+		}
+		break;
 		case 0x0d: 							//DCR    C
 		{
-			int res = c - 1;
-			zero = (res == 0);
-			sign = (0x80 == (res & 0x80));
-			parity = parity(res, 8);
-			c = res;
+			this.DCR(Register.c);
+
 		}
 		break;
 		case 0x0e: 							//MVI C,byte
-			c = mmry.read(pc+1);
+			this.MVI(Register.c, mmry.read(pc+1));
 			pc++;
 			break;
 		case 0x0f: 							//RRC
 		{
-			//rotate accumulator right
-			int x = (byte)(a&0xFF);
-			a = ((x & 1) << 7) | (x >> 1);
-			carry = (1 == (x&1));
+			this.RRC();
 		}
 		break;
-		case 0x10: throw new UnimplementedInstruction();
+		case 0x10: break; //NOP
 		case 0x11: 							//LXI	D,word
-			e = mmry.read(pc+ 1);
-			d = mmry.read(pc+2);
+			this.LXI(Register.d, Register.e, mmry.read(pc+2), mmry.read(pc+1));
 			pc += 2;
 			break;
-		case 0x12: throw new UnimplementedInstruction();
+		case 0x12:
+		{
+			// STAX D
+			this.STAX(Register.d, Register.e);
+		}
 		case 0x13: 							//INX    D
-			e++;
-			if (e > 0xFF){
-				d++;
-				if(d>0xFF){
-					d=0;
-				}
-				e =0;
-			}
+			this.INX(Register.d, Register.e);
 			break;		
-		case 0x14: throw new UnimplementedInstruction();
-		case 0x15: throw new UnimplementedInstruction();
-		case 0x16: throw new UnimplementedInstruction();
-		case 0x17: throw new UnimplementedInstruction();
-		case 0x18: throw new UnimplementedInstruction();
+		case 0x14: //INR D
+			this.INR(Register.d);
+			break;
+		case 0x15: //DCR D
+			this.DCR(Register.d);
+			break;
+		case 0x16: //MVI D
+			this.MVI(Register.d, mmry.read(pc+1));
+			pc++;
+			break;
+		case 0x17: //DAA
+			this.DAA();
+			break;
+		case 0x18: break; //NOP
 		case 0x19: 							//DAD    D
 		{
-			int hl = (h << 8) | (l&0xFF);
-			int de = (d << 8) | (e&0xFF);
-			int res = hl + de;
-			h = (res & 0xff00) >> 8;
-			l = res & 0xff;
-			carry = ((res & 0xffff0000) != 0);
+			this.DAD(Register.d, Register.e);
 		}
 		break;
 		case 0x1a: 							//LDAX	D
 		{
-			//load value to accumulator
-			a = mmry.read(mmry.BytesToShort(d, e));
+			this.LDAX(Register.d, Register.e);
 		}
 		break;
-		case 0x1b: throw new UnimplementedInstruction();
-		case 0x1c: throw new UnimplementedInstruction();
-		case 0x1d: throw new UnimplementedInstruction();
-		case 0x1e: throw new UnimplementedInstruction();
-		case 0x1f: throw new UnimplementedInstruction();
-		case 0x20: throw new UnimplementedInstruction();
+		case 0x1b: // DCX D
+			this.DCX(Register.d, Register.e);
+			break;
+		case 0x1c: 
+			this.INR(Register.e);
+			break;
+		case 0x1d: 
+			this.DCR(Register.e);
+			break;
+		case 0x1e: //MVI E
+			this.MVI(Register.e, mmry.read(pc+1));
+			pc++;
+			break;
+		case 0x1f: //RAR
+			this.RAR();
+			break;		
+		case 0x20: break;//NOP
 		case 0x21: 							//LXI	H,word
 			l = mmry.read(pc+1);
 			h = mmry.read(pc+2);
@@ -1034,8 +1040,18 @@ public class CPU {
 			carry = ((res & 0xffff0000) != 0);
 		}
 		break;
-		case 0x2a: throw new UnimplementedInstruction();
-		case 0x2b: throw new UnimplementedInstruction();
+		case 0x2a:
+		{
+			//LHLD
+			this.LHLD(mmry.read(pc+1), mmry.read(pc+2));
+			pc += 2;
+		}
+		break;
+		case 0x2b: 
+		{
+			this.DCX(Register.h, Register.l);
+		}
+		break;
 		case 0x2c: throw new UnimplementedInstruction();
 		case 0x2d: throw new UnimplementedInstruction();
 		case 0x2e: throw new UnimplementedInstruction();
@@ -1450,7 +1466,17 @@ public class CPU {
 		}
 		break;
 		case 0xe2: throw new UnimplementedInstruction();
-		case 0xe3: throw new UnimplementedInstruction();
+		case 0xe3: 
+		{
+			//XTHL
+			int templ=mmry.read(sp);
+			int temph=mmry.read(sp+1);
+			mmry.write(sp+1, h);
+			mmry.write(sp, l);
+			l = templ;
+			h = temph;
+			break;
+		}
 		case 0xe4: throw new UnimplementedInstruction();
 		case 0xe5: 						//PUSH   H
 		{
@@ -1467,8 +1493,16 @@ public class CPU {
 		}
 		break;
 		case 0xe7: throw new UnimplementedInstruction();
-		case 0xe8: throw new UnimplementedInstruction();
-		case 0xe9: throw new UnimplementedInstruction();
+		case 0xe8: 
+		{
+			this.RPE();
+			break;
+		}
+		case 0xe9: 
+		{  //PCHL
+			this.PCHL();
+			break;
+		}
 		case 0xea: throw new UnimplementedInstruction();
 		case 0xeb: 					//XCHG
 		{

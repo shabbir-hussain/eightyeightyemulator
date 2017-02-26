@@ -40,20 +40,37 @@ public class Driver implements ActionListener {
 	}
 
 
-	public void executionLoop() throws UnimplementedInstruction, ProgramCounterOutOfBounds{
+	public void executionLoop() throws UnimplementedInstruction, ProgramCounterOutOfBounds, IOException {
 
 		//setup timer for interupts
 		Timer t = new Timer(TIMEOUT, this);
 		t.start();
 
+		try{
 		int i=1;
-		while(true){
-			out.println("Step "+i);
-			cpu.executionLoop();
-			//cpu.ExecuteNextInstruction();
+			while(true){
+				out.println("Step "+i);
+				cpu.executionLoop();
+				//cpu.ExecuteNextInstruction();
+				out.println(cpu.ToString());
+				i++;
+			}
+		}catch(UnimplementedInstruction e ){
 			out.println(cpu.ToString());
-			i++;
+			out.println("Memory Dump:");
+			byte memory[] = cpu.mmry.memDump();
+			out.write(memory);
+			out.println();
+			throw e;
+		}catch(ProgramCounterOutOfBounds e){
+			out.println(cpu.ToString());
+			out.println("Memory Dump:");
+			byte memory[] = cpu.mmry.memDump();
+			out.write(memory);
+			out.println();			
+			throw e;
 		}
+		
 	}
 
 
@@ -109,7 +126,7 @@ public class Driver implements ActionListener {
 
 		//create obj
 		Driver drvr = new Driver();
-
+		
 		//run
 		drvr.executionLoop();
 	}
